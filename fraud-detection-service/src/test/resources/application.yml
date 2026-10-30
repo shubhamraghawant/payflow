@@ -1,0 +1,6 @@
+spring:
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: fraud-test-group
+      auto-offset-reset: earliest

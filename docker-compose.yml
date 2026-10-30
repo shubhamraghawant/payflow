@@ -1,0 +1,104 @@
+version: '3.8'
+
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: payflow-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - payflow-network
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: payflow-kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    networks:
+      - payflow-network
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: payflow-postgres
+    environment:
+      POSTGRES_USER: payflow
+      POSTGRES_PASSWORD: payflow123
+      POSTGRES_DB: payflow_payments
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    networks:
+      - payflow-network
+
+  payment-service:
+    build:
+      context: .
+      dockerfile: payment-service/Dockerfile
+    container_name: payflow-payment-service
+    ports:
+      - "8081:8081"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/payflow_payments
+      SPRING_DATASOURCE_USERNAME: payflow
+      SPRING_DATASOURCE_PASSWORD: payflow123
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SPRING_PROFILES_ACTIVE: docker
+    depends_on:
+      - kafka
+      - postgres
+    networks:
+      - payflow-network
+
+  fraud-detection-service:
+    build:
+      context: .
+      dockerfile: fraud-detection-service/Dockerfile
+    container_name: payflow-fraud-service
+    ports:
+      - "8082:8082"
+    environment:
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SPRING_PROFILES_ACTIVE: docker
+    depends_on:
+      - kafka
+    networks:
+      - payflow-network
+
+  notification-service:
+    build:
+      context: .
+      dockerfile: notification-service/Dockerfile
+    container_name: payflow-notification-service
+    ports:
+      - "8083:8083"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/payflow_notifications
+      SPRING_DATASOURCE_USERNAME: payflow
+      SPRING_DATASOURCE_PASSWORD: payflow123
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SPRING_PROFILES_ACTIVE: docker
+    depends_on:
+      - kafka
+      - postgres
+    networks:
+      - payflow-network
+
+networks:
+  payflow-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
